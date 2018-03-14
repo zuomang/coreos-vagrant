@@ -1,0 +1,137 @@
+#cloud-config
+
+---
+coreos:
+  update:
+    reboot-strategy: etcd-lock
+  units:
+  - name: update-engine.service
+    command: stop
+  - name: locksmithd.service
+    command: stop
+  - name: docker.socket
+    command: stop
+  - name: docker.service
+    command: stop
+    drop-ins:
+      - name: 30-log-opt.conf
+        content: |
+          [Service]
+          Environment="DOCKER_OPTS=--log-opt max-size=100m --log-opt max-file=2"
+  - name: bootstrap.service
+    command: start
+    content: |
+      [Unit]
+      Description=Bootstrap script to bring the cluster up
+      After=network.target
+
+      [Service]
+      ExecStart=/opt/bin/bootstrap.sh
+      RemainAfterExit=yes
+      Type=oneshot
+
+      [Install]
+      WantedBy=multi-user.target
+  - name: etcd3.service
+    command: start
+    content: |
+      [Unit]
+      Description=etcd3
+      Documentation=https://github.com/coreos/etcd
+      Requires=bootstrap.service
+      After=bootstrap.service
+
+      [Service]
+      EnvironmentFile=/opt/env/host.env
+      ExecStartPre=/bin/mkdir -p /var/lib/etcd3
+      ExecStart=/opt/bin/etcd \
+        --data-dir=/var/lib/etcd3 \
+        --name={{ HOST_NAME }} \
+        --initial-advertise-peer-urls=http://$private_ipv4:2380 \
+        --listen-peer-urls=http://$private_ipv4:2380 \
+        --listen-client-urls=http://$private_ipv4:2379,http://127.0.0.1:2379 \
+        --advertise-client-urls=http://$private_ipv4:2379 \
+        --initial-cluster-token=etcd-cluster-1 \
+        --initial-cluster-state=new \
+        --initial-cluster=core-01=http://192.168.58.101:2380,core-02=http://192.168.58.102:2380,core-03=http://192.168.58.103:2380 \
+        --snapshot-count=25000 \
+        --heartbeat-interval=250 \
+        --election-timeout=2500
+      Type=notify
+
+      [Install]
+      WantedBy=multi-user.target
+  - name: kube-flanneld.service
+    command: start
+    content: |
+      [Unit]
+      Description=Flannel networking system for Kubernetes
+      Documentation=https://github.com/coreos/flannel
+      Requires=etcd3.service
+      After=etcd3.service
+
+      [Service]
+      ExecStartPre=/opt/bin/etcdctl --endpoints=http://192.168.58.101:2379,http://192.168.58.102:2379,http://192.168.58.103:2379 set /coreos.com/network/config '{"Network":"172.17.0.0/16"}'
+      ExecStart=/opt/bin/flanneld \
+        -ip-masq=true \
+        -iface=eth1 \
+        -etcd-endpoints=http://192.168.58.101:2379,http://192.168.58.102:2379,http://192.168.58.103:2379
+      ExecStartPost=/opt/bin/kube-flanneld-watch.sh
+      Restart=always
+      RestartSec=10
+  - name: kube-kubelet.service
+    command: start
+    content: |
+      [Unit]
+      Description=Kubernetes Agent
+      Documentation=http://kubernetes.io/docs/admin/kubelet/
+      Requires=kube-flanneld.service
+      After=kube-flanneld.service
+
+      [Service]
+      EnvironmentFile=/opt/env/host.env
+      ExecStart=/opt/bin/kubelet \
+       --hostname-override={{ HOST_IP }} \
+       --register-node=true \
+       --allow-privileged=true \
+       --cluster_dns=10.3.0.2 \
+       --cluster_domain=cluster.local \
+       --logtostderr=true \
+       --kubeconfig=/opt/kube/worker-kubeconfig.yaml \
+       --tls-cert-file=/opt/ssl/worker.pem \
+       --tls-private-key-file=/opt/ssl/worker-key.pem
+      Restart=always
+      RestartSec=10
+  - name: kube-proxy.service
+    command: start
+    content: |
+      [Unit]
+      Description=Kubernetes Proxy
+      Documentation=http://kubernetes.io/docs/admin/kube-proxy/
+      Requires=kube-kubelet.service
+      After=kube-kubelet.service
+
+      [Service]
+      ExecStart=/opt/bin/kube-proxy \
+       --kubeconfig=/opt/kube/worker-kubeconfig.yaml \
+       --hostname-override={{ HOST_IP }}
+       --proxy-mode=iptables
+      Restart=always
+      RestartSec=10
+
+write_files:
+  - path: "/opt/bin/bootstrap.sh"
+    permissions: '0755'
+    owner: root
+    encoding: gzip+base64
+    content: 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
+  - path: "/opt/bin/kube-flanneld-watch.sh"
+    permissions: '0755'
+    owner: root
+    encoding: gzip+base64
+    content: H4sIAG3J5FkAA1WOQU/DMAyF7/4VoePa5cRtRdpGJ01sbWHdOUqDJyLStMTOBP+eRoCgJ1t+33t+ixvZWS87Ta8AhCxy/JgWhziKOwJYCOuBhhgMChmilxenvUcnKXYeeYn+mqAhMhjN4n4O/Uz1Mpg3DGoYmZJDrFZlvYOHevtYPqu6adVm3xRZnnd2LG53h3VVlQd1Om+qss3+Y/vmuD49JdKOea/pvbhoRzhjju05AT3Hv6jplkF6OVUl1oHFdyNBGK7WINAnMfaG3Uxe/spfCh7P0yYBAAA=
+  - path: "/opt/kube/worker-kubeconfig.yaml"
+    permissions: '0644'
+    owner: root
+    encoding: gzip+base64
+    content: H4sIAFYQ5lkAA2WPQRKDIAxF95yCCyDTLdveoXsa08qA4EDQevsipY6Ou4T/P+9HCMH0ZB4Ykwle8fnGrPG94vfgX+bNwOVERVRMcK9HVNwF0I5x3hRVxrJgJPMyoAmFzjSEaGhVXIaJZEpOgu4mHKs1YZxLjA9EU1JSQt8t2qLvAFhOJ5TNT3RIJbYJjeQMehIH4AGzhGgx7qjmtbhePNtj9UHwhB+q1Db/Qb/79oNbi0OrU0vR0gxyjLVi++1i+AJZl1LGdAEAAA==

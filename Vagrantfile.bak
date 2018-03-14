@@ -160,7 +160,7 @@ Vagrant.configure("2") do |config|
       # This shouldn't be used for the virtualbox provider (it doesn't have any effect if it is though)
       if File.exist?(CLOUD_CONFIG_PATH)
         if i <= 1
-          config.vm.provision :file, :source => "#{$CLOUD_CONFIG_PATH}"+"user-data-master.yaml", :destination => "/tmp/vagrantfile-user-data"
+          config.vm.provision :file, :source => "#{$CLOUD_CONFIG_PATH}"+"master.yaml", :destination => "/tmp/vagrantfile-user-data"
         else
           config.vm.provision :file, :source => "#{$CLOUD_CONFIG_PATH}"+"user-data-slave.yaml", :destination => "/tmp/vagrantfile-user-data"
         end
