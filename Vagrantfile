@@ -65,7 +65,6 @@ Vagrant.configure("2") do |config|
   # forward ssh agent to easily ssh into the different machines
   config.ssh.forward_agent = true
 
-
   config.vm.box = "coreos-%s" % $update_channel
   if $image_version != "current"
       config.vm.box_version = $image_version
@@ -95,6 +94,14 @@ Vagrant.configure("2") do |config|
   (1..$num_instances).each do |i|
     config.vm.define vm_name = "%s-%02d" % [$instance_name_prefix, i] do |config|
       config.vm.hostname = vm_name
+      # Custom host configuration
+      if i <= 1
+        $vm_memory = 1024
+        $vm_cpus = 1
+      else
+        $vm_memory = 2048
+        $vm_cpus = 4
+      end
 
       if $enable_serial_logging
         logdir = File.join(File.dirname(__FILE__), "log")

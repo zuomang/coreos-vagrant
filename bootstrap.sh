@@ -14,6 +14,7 @@ cat > /etc/hosts << EOF
 $(ifconfig eth1 | grep -e 'inet\b' | awk '{printf $2}')     $(hostname)
 192.168.58.101   cd.waken.cc
 10.58.81.136   oo.kkops.cc
+10.58.81.136   registry.kkops.cc
 EOF
 
 # add self sap root ca certificate into system
@@ -98,18 +99,6 @@ HOST_IP=$(ifconfig eth1 | grep -e 'inet\b' | awk '{printf $2}')
 KUBE_APISERVER_URL="https://cd.waken.cc"
 EOF
 
-HOST_NAME=$(hostname)
-HOST_IP=$(ifconfig eth1 | grep -e 'inet\b' | awk '{printf $2}')
-KUBE_APISERVER_URL="https://cd.waken.cc"
-
-if [ ${HOST_NAME} == "core-01" ]
-then
-    sudo sed -i "s/{{ HOST_NAME }}/${HOST_NAME}/g" /etc/systemd/system/etcd3.service
-else
-    sudo sed -i "s/{{ HOST_NAME }}/${HOST_NAME}/g" /etc/systemd/system/etcd3.service
-    sudo sed -i "s/{{ HOST_IP }}/${HOST_IP}/g" /etc/systemd/system/kube-kubelet.service
-fi
-
 # cp ca certificate to /etc/ssl/certs/
 cp /opt/ssl/ca.pem /etc/ssl/certs/
 update-ca-certificates
@@ -123,3 +112,9 @@ update-ca-certificates
 # mark ready
 touch /opt/bin/ready
 echo 'done'
+
+HOST_NAME=$(hostname)
+HOST_IP=$(ifconfig eth1 | grep -e 'inet\b' | awk '{printf $2}')
+KUBE_APISERVER_URL="https://cd.waken.cc"
+sudo sed -i "s/{{ HOST_NAME }}/${HOST_NAME}/g" /etc/systemd/system/*.service
+sudo sed -i "s/{{ HOST_IP }}/${HOST_IP}/g" /etc/systemd/system/*.service
